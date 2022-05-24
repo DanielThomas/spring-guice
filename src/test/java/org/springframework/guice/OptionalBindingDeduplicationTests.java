@@ -31,7 +31,7 @@ import org.springframework.guice.annotation.EnableGuiceModules;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
-public class BindingDeduplicationTests {
+public class OptionalBindingDeduplicationTests {
 
 	@AfterAll
 	public static void cleanUp() {
@@ -60,11 +60,15 @@ public class BindingDeduplicationTests {
 		});
 	}
 
-	public static class SomeDependency {
+	public interface Dependency {
 
 	}
 
-	public static class SomeOptionalDependency {
+	public static class SomeDependency implements Dependency {
+
+	}
+
+	public static class SomeOptionalDependency implements Dependency {
 
 	}
 
@@ -88,7 +92,7 @@ public class BindingDeduplicationTests {
 				@Override
 				protected void configure() {
 					bind(SomeDependency.class).asEagerSingleton();
-					OptionalBinder.newOptionalBinder(binder(), SomeOptionalDependency.class).setDefault()
+					OptionalBinder.newOptionalBinder(binder(), Dependency.class).setDefault()
 							.to(SomeOptionalDependency.class);
 				}
 			};

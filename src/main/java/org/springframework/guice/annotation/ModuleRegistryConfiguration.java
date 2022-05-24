@@ -26,6 +26,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import com.google.inject.Binding;
@@ -39,7 +40,6 @@ import com.google.inject.name.Named;
 import com.google.inject.spi.Element;
 import com.google.inject.spi.ElementSource;
 import com.google.inject.spi.Elements;
-import com.google.inject.spi.LinkedKeyBinding;
 import com.google.inject.spi.PrivateElements;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -252,69 +252,28 @@ class ModuleRegistryConfiguration implements BeanDefinitionRegistryPostProcessor
 	 * @return de-duplicated list of bindings
 	 */
 	protected List<Element> removeDuplicates(List<Element> elements) {
-		List<Element> duplicateElements = elements.stream().filter((e) -> e instanceof Binding)
-				.map((e) -> (Binding<?>) e)
-				.collect(Collectors.groupingBy(ModuleRegistryConfiguration::getLinkedKeyIfRequired)).entrySet().stream()
-				.filter((e) -> e.getValue().size() > 1 && e.getValue().stream()
-						.anyMatch((binding) -> binding.getSource() != null
-								&& binding.getSource().toString().contains(SpringModule.SPRING_GUICE_SOURCE))) // find
-																												// duplicates
-				.flatMap((e) -> e.getValue().stream())
-				.filter((e) -> e.getSource() != null
-						&& !e.getSource().toString().contains(SpringModule.SPRING_GUICE_SOURCE))
-				.collect(Collectors.toList());
+		Map<? extends Key<?>, List<? extends Binding<?>>> duplicateBindings = elements.stream()
+				.filter((e) -> e instanceof Binding).map((e) -> (Binding<?>) e)
+				.collect(Collectors.groupingBy(Binding::getKey)).entrySet().stream()
+				.filter((e) -> e.getValue().size() > 1 && e.getValue().stream().anyMatch(hasSpringGuiceSource()))
+				.collect(Collectors.toMap(Entry::getKey, Entry::getValue));
 
-		@SuppressWarnings("unlikely-arg-type")
-		List<Element> dedupedElements = elements.stream().filter((e) -> {
+		return elements.stream().map((e) -> {
 			if (e instanceof Binding) {
-				return !duplicateElements.contains(new SourceComparableBinding((Binding<?>) e));
-			}
-			else {
-				return true;
-			}
-		}).collect(Collectors.toList());
-		return dedupedElements;
-	}
-
-	private static Key<?> getLinkedKeyIfRequired(Binding<?> binding) {
-		if (binding == null) {
-			return null;
-		}
-
-		if (binding instanceof LinkedKeyBinding) {
-			LinkedKeyBinding<?> linkedBinding = (LinkedKeyBinding<?>) binding;
-			return linkedBinding.getLinkedKey();
-		}
-
-		return binding.getKey();
-	}
-
-	@SuppressWarnings("checkstyle:EqualsHashCode")
-	private static class SourceComparableBinding {
-
-		private Binding<?> binding;
-
-		SourceComparableBinding(Binding<?> binding) {
-			this.binding = binding;
-		}
-
-		@Override
-		public boolean equals(Object obj) {
-			if (obj instanceof Binding) {
-				Binding<?> compareTo = (Binding<?>) obj;
-				if (compareTo.getSource() != null && this.binding != null) {
-					return this.binding.equals(compareTo)
-							&& Objects.equals(this.binding.getSource(), compareTo.getSource());
-				}
-				else {
-					return Objects.equals(this.binding, compareTo);
+				Binding<?> b = (Binding<?>) e;
+				Key<?> key = b.getKey();
+				List<? extends Binding<?>> duplicates = duplicateBindings.get(key);
+				if (duplicates != null && hasSpringGuiceSource().negate().test(b)) {
+					return null;
 				}
 			}
-			else {
-				return false;
-			}
-		}
+			return e;
+		}).filter(Objects::nonNull).collect(Collectors.toList());
+	}
 
+	private static Predicate<Element> hasSpringGuiceSource() {
+		return ((element) -> element.getSource() != null
+				&& element.getSource().toString().contains(SpringModule.SPRING_GUICE_SOURCE));
 	}
 
 	/**
